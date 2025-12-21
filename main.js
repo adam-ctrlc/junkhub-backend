@@ -59,10 +59,12 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 // Start server
-app.listen(config.port, () => {
-  console.log(`🚀 Server running on port ${config.port}`);
-  console.log(`📝 Environment: ${config.nodeEnv}`);
-  console.log(`🌐 CORS origin: ${config.corsOrigin}`);
-});
+if (process.env.NODE_ENV !== "production") {
+  app.listen(config.port, () => {
+    console.log(`🚀 Server running on port ${config.port}`);
+    console.log(`📝 Environment: ${config.nodeEnv}`);
+    console.log(`🌐 CORS origin: ${config.corsOrigin}`);
+  });
+}
 
 export default app;
