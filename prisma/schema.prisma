@@ -1,0 +1,226 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id         String   @id @default(uuid())
+  email      String   @unique
+  password   String
+  firstName  String
+  lastName   String
+  phone      String?
+  address    String?
+  profilePic String?  @db.Text
+  wishlist   Json     @default("[]")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  
+  orders        Order[]
+  reviews       Review[]
+  chats         Chat[]
+  sentMessages  Message[]       @relation("SentMessages")
+  notifications Notification[]
+  offers        Offer[]
+  
+  @@map("users")
+}
+
+model Owner {
+  id              String   @id @default(uuid())
+  email           String   @unique
+  password        String
+  businessName    String
+  businessAddress String
+  phone           String
+  profilePic      String?  @db.Text
+  approved        Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  shops         Shop[]
+  notifications Notification[]
+  chats         Chat[]
+  sentMessages  Message[]       @relation("OwnerSentMessages")
+  
+  @@map("owners")
+}
+
+model Admin {
+  id         String   @id @default(uuid())
+  email      String   @unique
+  password   String
+  name       String
+  profilePic String?  @db.Text
+  role       String   @default("admin")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  
+  notifications Notification[]
+  
+  @@map("admins")
+}
+
+model Shop {
+  id              String   @id @default(uuid())
+  name            String
+  description     String?
+  logo            String?  @db.Text
+  businessAddress String
+  ownerId         String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  owner    Owner     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  products Product[]
+  
+  @@map("shops")
+}
+
+model Product {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  price       Float
+  images      Json     @default("[]")
+  shopId      String
+  category    String
+  stock       Int      @default(0)
+  type        String   // "Buying" or "Selling"
+  status      String   @default("pending") // "pending", "approved", "rejected"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  shop       Shop        @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  orderItems OrderItem[]
+  reviews    Review[]
+  offers     Offer[]
+  
+  @@map("products")
+}
+
+model Order {
+  id                  String    @id @default(uuid())
+  userId              String
+  total               Float
+  status              String    @default("pending") // pending, processing, shipped, delivered, completed, cancelled
+  shippingAddress     String
+  shippingCity        String
+  shippingZip         String
+  receiptNumber       String?   // System-generated receipt number (e.g., RCP-20241214-ABCD1234)
+  completedAt         DateTime? // When user confirmed order completion
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  
+  user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items OrderItem[]
+  chat  Chat?
+  
+  @@map("orders")
+}
+
+model OrderItem {
+  id        String   @id @default(uuid())
+  orderId   String
+  productId String
+  quantity  Int
+  price     Float
+  createdAt DateTime @default(now())
+  
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+  
+  @@map("order_items")
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  userId    String
+  productId String
+  rating    Int // 1-5
+  comment   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  @@map("reviews")
+}
+
+model Chat {
+  id        String   @id @default(uuid())
+  orderId   String   @unique  // Each order has one chat
+  userId    String            // The customer
+  ownerId   String            // The shop owner
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  order    Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  owner    Owner    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  messages Message[]
+  
+  @@map("chats")
+}
+
+model Message {
+  id             String   @id @default(uuid())
+  chatId         String
+  senderType     String   // "user" or "owner"
+  senderUserId   String?  // If sender is user
+  senderOwnerId  String?  // If sender is owner
+  content        String   @db.Text
+  isRead         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  
+  chat        Chat   @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  senderUser  User?  @relation("SentMessages", fields: [senderUserId], references: [id], onDelete: Cascade)
+  senderOwner Owner? @relation("OwnerSentMessages", fields: [senderOwnerId], references: [id], onDelete: Cascade)
+  
+  @@map("messages")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String?  // For user notifications
+  ownerId   String?  // For owner notifications
+  adminId   String?  // For admin notifications
+  type      String   // "order", "offer", "system", "approval"
+  title     String
+  message   String   @db.Text
+  isRead    Boolean  @default(false)
+  link      String?
+  createdAt DateTime @default(now())
+  
+  user  User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  owner Owner? @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  admin Admin? @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  
+  @@map("notifications")
+}
+
+model Offer {
+  id            String   @id @default(uuid())
+  userId        String
+  productId     String
+  quantity      Int
+  description   String?  @db.Text
+  images        Json     @default("[]") // Proof images (base64) when user sells to shop
+  contactNumber String
+  status        String   @default("pending") // pending, accepted, rejected
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  @@map("offers")
+}
