@@ -27,6 +27,9 @@ app.use(
   cors({
     origin: config.corsOrigin,
     credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    exposedHeaders: ["set-cookie"],
   })
 );
 app.use(express.json());
