@@ -79,12 +79,29 @@ router.get("/owners", authenticateAdmin, async (req, res, next) => {
 
 /**
  * PUT /api/admin/owners/:id/approve
- * Approve an owner's business
+ * Approve an owner's business and create their shop
  */
 router.put("/owners/:id/approve", authenticateAdmin, async (req, res, next) => {
   try {
     const { id } = req.params;
 
+    // Get owner details first
+    const ownerData = await prisma.owner.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        businessName: true,
+        businessAddress: true,
+        profilePic: true,
+        shops: { select: { id: true } },
+      },
+    });
+
+    if (!ownerData) {
+      return res.status(404).json({ error: "Owner not found" });
+    }
+
+    // Update owner approval status
     const owner = await prisma.owner.update({
       where: { id },
       data: { approved: true },
@@ -95,6 +112,18 @@ router.put("/owners/:id/approve", authenticateAdmin, async (req, res, next) => {
         approved: true,
       },
     });
+
+    // Create shop automatically if owner doesn't have one
+    if (ownerData.shops.length === 0) {
+      await prisma.shop.create({
+        data: {
+          name: ownerData.businessName,
+          businessAddress: ownerData.businessAddress,
+          logo: ownerData.profilePic || null,
+          ownerId: id,
+        },
+      });
+    }
 
     // Notify owner about approval
     await notifyOwnerApproved(id, true);

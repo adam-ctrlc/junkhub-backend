@@ -24,8 +24,8 @@ export function validateBase64Image(base64String) {
   const sizeInBytes = (base64Data.length * 3) / 4;
   const sizeInMB = sizeInBytes / (1024 * 1024);
 
-  // Check if size exceeds 10MB
-  const MAX_SIZE_MB = 10;
+  // Check if size exceeds 50MB
+  const MAX_SIZE_MB = 50;
   if (sizeInMB > MAX_SIZE_MB) {
     return {
       valid: false,

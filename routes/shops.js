@@ -87,11 +87,11 @@ router.get("/:id", async (req, res, next) => {
 
 /**
  * GET /api/shops/owner/my-shops
- * Get owner's shops
+ * Get owner's shops (auto-creates one if approved owner has none)
  */
 router.get("/owner/my-shops", authenticateOwner, async (req, res, next) => {
   try {
-    const shops = await prisma.shop.findMany({
+    let shops = await prisma.shop.findMany({
       where: { ownerId: req.user.id },
       include: {
         _count: {
@@ -100,6 +100,36 @@ router.get("/owner/my-shops", authenticateOwner, async (req, res, next) => {
       },
       orderBy: { createdAt: "desc" },
     });
+
+    // Auto-create shop for approved owners who don't have one
+    if (shops.length === 0) {
+      const owner = await prisma.owner.findUnique({
+        where: { id: req.user.id },
+        select: {
+          approved: true,
+          businessName: true,
+          businessAddress: true,
+          profilePic: true,
+        },
+      });
+
+      if (owner && owner.approved) {
+        const newShop = await prisma.shop.create({
+          data: {
+            name: owner.businessName,
+            businessAddress: owner.businessAddress,
+            logo: owner.profilePic || null,
+            ownerId: req.user.id,
+          },
+          include: {
+            _count: {
+              select: { products: true },
+            },
+          },
+        });
+        shops = [newShop];
+      }
+    }
 
     res.json({ shops });
   } catch (error) {
