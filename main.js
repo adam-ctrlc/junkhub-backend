@@ -51,7 +51,7 @@ app.use("/api/offers", offerRoutes);
 app.use("/api/owner", ownerRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/chats", chatRoutes);
-app.use("/api/notifications", notificationRoutes);
+app.use("/api/notifications", notificationRoutes);  
 app.use("/api/owner/notifications", ownerNotificationRoutes);
 app.use("/api/admin/notifications", adminNotificationRoutes);
 app.use("/api/owner/chats", ownerChatRoutes);

@@ -9,6 +9,8 @@ import {
   registerOwnerValidation,
   loginValidation,
   adminLoginValidation,
+  forgotPasswordVerifyValidation,
+  forgotPasswordResetValidation,
 } from "../validators/auth.js";
 
 const router = express.Router();
@@ -288,6 +290,207 @@ router.post(
       const { password: _, ...adminWithoutPassword } = admin;
 
       res.json({ admin: adminWithoutPassword, token });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// In-memory store for verification tokens (in production, use Redis or database)
+const verificationTokens = new Map();
+
+/**
+ * POST /api/auth/forgot-password/verify
+ * Verify user identity for password reset
+ */
+router.post(
+  "/forgot-password/verify",
+  forgotPasswordVerifyValidation,
+  validate,
+  async (req, res, next) => {
+    try {
+      const { accountType, firstName, lastName, contactNumber, email } =
+        req.body;
+
+      let account;
+
+      if (accountType === "user") {
+        // Find user by email and verify other details
+        account = await prisma.user.findUnique({
+          where: { email },
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+            phone: true,
+          },
+        });
+
+        if (!account) {
+          return res.status(404).json({
+            error: "No account found with this email address",
+          });
+        }
+
+        // Verify the details match (case-insensitive comparison for names)
+        const firstNameMatch =
+          account.firstName.toLowerCase() === firstName.toLowerCase();
+        const lastNameMatch =
+          account.lastName.toLowerCase() === lastName.toLowerCase();
+        const phoneMatch = account.phone === contactNumber;
+
+        if (!firstNameMatch || !lastNameMatch || !phoneMatch) {
+          return res.status(400).json({
+            error: "The information you provided does not match our records",
+          });
+        }
+      } else if (accountType === "owner") {
+        // Find owner by email and verify other details
+        // For owners, we use businessName parts as first/last name verification
+        account = await prisma.owner.findUnique({
+          where: { email },
+          select: {
+            id: true,
+            email: true,
+            businessName: true,
+            phone: true,
+          },
+        });
+
+        if (!account) {
+          return res.status(404).json({
+            error: "No account found with this email address",
+          });
+        }
+
+        // For owners, verify phone and business name contains the provided names
+        const businessNameLower = account.businessName.toLowerCase();
+        const containsFirstName = businessNameLower.includes(
+          firstName.toLowerCase()
+        );
+        const containsLastName = businessNameLower.includes(
+          lastName.toLowerCase()
+        );
+        const phoneMatch = account.phone === contactNumber;
+
+        // If businessName doesn't contain provided names, try exact first+last match
+        const fullNameMatch =
+          businessNameLower === `${firstName} ${lastName}`.toLowerCase();
+
+        if (
+          (!containsFirstName && !containsLastName && !fullNameMatch) ||
+          !phoneMatch
+        ) {
+          return res.status(400).json({
+            error: "The information you provided does not match our records",
+          });
+        }
+      }
+
+      // Generate a verification token (simple approach - in production use JWT or secure random)
+      const verificationToken = Buffer.from(
+        JSON.stringify({
+          id: account.id,
+          email: account.email,
+          accountType,
+          timestamp: Date.now(),
+        })
+      ).toString("base64");
+
+      // Store the token with expiration (15 minutes)
+      verificationTokens.set(verificationToken, {
+        accountId: account.id,
+        accountType,
+        email: account.email,
+        expiresAt: Date.now() + 15 * 60 * 1000, // 15 minutes
+      });
+
+      res.json({
+        success: true,
+        message:
+          "Account verified successfully. You can now reset your password.",
+        verificationToken,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * POST /api/auth/forgot-password/reset
+ * Reset password after verification
+ */
+router.post(
+  "/forgot-password/reset",
+  forgotPasswordResetValidation,
+  validate,
+  async (req, res, next) => {
+    try {
+      const {
+        accountType,
+        email,
+        verificationToken,
+        newPassword,
+        confirmPassword,
+      } = req.body;
+
+      // Check if passwords match
+      if (newPassword !== confirmPassword) {
+        return res.status(400).json({ error: "Passwords do not match" });
+      }
+
+      // Verify the token
+      const tokenData = verificationTokens.get(verificationToken);
+
+      if (!tokenData) {
+        return res.status(400).json({
+          error:
+            "Invalid or expired verification token. Please verify your identity again.",
+        });
+      }
+
+      // Check if token is expired
+      if (Date.now() > tokenData.expiresAt) {
+        verificationTokens.delete(verificationToken);
+        return res.status(400).json({
+          error:
+            "Verification token has expired. Please verify your identity again.",
+        });
+      }
+
+      // Verify token matches the request
+      if (tokenData.email !== email || tokenData.accountType !== accountType) {
+        return res.status(400).json({
+          error: "Token does not match the account information",
+        });
+      }
+
+      // Hash the new password
+      const hashedPassword = await hashPassword(newPassword);
+
+      // Update the password
+      if (accountType === "user") {
+        await prisma.user.update({
+          where: { id: tokenData.accountId },
+          data: { password: hashedPassword },
+        });
+      } else if (accountType === "owner") {
+        await prisma.owner.update({
+          where: { id: tokenData.accountId },
+          data: { password: hashedPassword },
+        });
+      }
+
+      // Remove the used token
+      verificationTokens.delete(verificationToken);
+
+      res.json({
+        success: true,
+        message:
+          "Password reset successfully. You can now login with your new password.",
+      });
     } catch (error) {
       next(error);
     }
