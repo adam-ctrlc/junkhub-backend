@@ -266,7 +266,13 @@ router.get("/orders", authenticateOwner, async (req, res, next) => {
       },
       include: {
         user: {
-          select: { id: true, firstName: true, lastName: true, email: true },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            address: true,
+          },
         },
         items: {
           include: {
@@ -293,10 +299,36 @@ router.put(
   "/profile",
   authenticateOwner,
   [
-    body("businessName").optional().trim().notEmpty(),
-    body("businessAddress").optional().trim().notEmpty(),
-    body("phone").optional().trim().notEmpty(),
-    body("newPassword").optional().isLength({ min: 6 }),
+    body("businessName")
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage("Business name cannot be empty")
+      .isLength({ min: 2, max: 100 })
+      .withMessage("Business name must be between 2 and 100 characters"),
+    body("businessAddress")
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage("Business address cannot be empty")
+      .isLength({ max: 500 })
+      .withMessage("Address must not exceed 500 characters"),
+    body("phone")
+      .optional()
+      .trim()
+      .custom((value) => {
+        if (!value) return true;
+        // Philippine phone format: 09XXXXXXXXX or +639XXXXXXXXX
+        const phoneRegex = /^(\+63|0)?9\d{9}$/;
+        if (!phoneRegex.test(value.replace(/\s/g, ""))) {
+          throw new Error("Invalid phone number format (e.g., 09123456789)");
+        }
+        return true;
+      }),
+    body("newPassword")
+      .optional()
+      .isLength({ min: 6 })
+      .withMessage("New password must be at least 6 characters"),
     body("profilePic")
       .optional()
       .custom((value) => {

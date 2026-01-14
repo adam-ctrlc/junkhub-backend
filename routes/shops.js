@@ -30,12 +30,20 @@ router.get("/", async (req, res, next) => {
       where,
       include: {
         owner: {
-          select: { businessName: true, email: true },
+          select: { businessName: true, email: true, profilePic: true },
         },
         _count: {
           select: {
             products: {
               where: { status: "approved" }, // Only count approved products
+            },
+          },
+        },
+        products: {
+          where: { status: "approved" },
+          select: {
+            reviews: {
+              select: { rating: true },
             },
           },
         },
@@ -45,41 +53,28 @@ router.get("/", async (req, res, next) => {
       orderBy: { createdAt: "desc" },
     });
 
-    const total = await prisma.shop.count({ where });
-
-    res.json({ shops, total });
-  } catch (error) {
-    next(error);
-  }
-});
-
-/**
- * GET /api/shops/:id
- * Get shop by ID (public - only shows approved products)
- */
-router.get("/:id", async (req, res, next) => {
-  try {
-    const { id } = req.params;
-
-    const shop = await prisma.shop.findUnique({
-      where: { id },
-      include: {
-        owner: {
-          select: { businessName: true, email: true, phone: true },
-        },
-        products: {
-          where: { status: "approved" }, // Only show approved products
-          take: 10,
-          orderBy: { createdAt: "desc" },
-        },
-      },
+    // Calculate average rating for each shop from product reviews
+    const shopsWithRatings = shops.map((shop) => {
+      const allReviews = shop.products.flatMap((p) => p.reviews);
+      const reviewCount = allReviews.length;
+      const averageRating =
+        reviewCount > 0
+          ? (
+              allReviews.reduce((sum, r) => sum + r.rating, 0) / reviewCount
+            ).toFixed(1)
+          : null;
+      // Remove products from response to keep it clean
+      const { products, ...shopData } = shop;
+      return {
+        ...shopData,
+        averageRating: parseFloat(averageRating) || 0,
+        reviewCount,
+      };
     });
 
-    if (!shop) {
-      return res.status(404).json({ error: "Shop not found" });
-    }
+    const total = await prisma.shop.count({ where });
 
-    res.json({ shop });
+    res.json({ shops: shopsWithRatings, total });
   } catch (error) {
     next(error);
   }
@@ -88,6 +83,7 @@ router.get("/:id", async (req, res, next) => {
 /**
  * GET /api/shops/owner/my-shops
  * Get owner's shops (auto-creates one if approved owner has none)
+ * NOTE: This route MUST be defined BEFORE /:id to prevent Express from matching "owner" as an id
  */
 router.get("/owner/my-shops", authenticateOwner, async (req, res, next) => {
   try {
@@ -132,6 +128,69 @@ router.get("/owner/my-shops", authenticateOwner, async (req, res, next) => {
     }
 
     res.json({ shops });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/shops/:id
+ * Get shop by ID (public - only shows approved products)
+ */
+router.get("/:id", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const shop = await prisma.shop.findUnique({
+      where: { id },
+      include: {
+        owner: {
+          select: {
+            businessName: true,
+            email: true,
+            phone: true,
+            profilePic: true,
+          },
+        },
+        products: {
+          where: { status: "approved" }, // Only show approved products
+          include: {
+            reviews: {
+              select: { rating: true },
+            },
+          },
+          orderBy: { createdAt: "desc" },
+        },
+      },
+    });
+
+    if (!shop) {
+      return res.status(404).json({ error: "Shop not found" });
+    }
+
+    // Calculate average rating from all product reviews
+    const allReviews = shop.products.flatMap((p) => p.reviews);
+    const reviewCount = allReviews.length;
+    const averageRating =
+      reviewCount > 0
+        ? parseFloat(
+            (
+              allReviews.reduce((sum, r) => sum + r.rating, 0) / reviewCount
+            ).toFixed(1)
+          )
+        : 0;
+
+    // Remove reviews from products for cleaner response
+    const productsWithoutReviews = shop.products.map(({ reviews, ...p }) => p);
+
+    res.json({
+      shop: {
+        ...shop,
+        products: productsWithoutReviews,
+        averageRating,
+        reviewCount,
+      },
+    });
   } catch (error) {
     next(error);
   }

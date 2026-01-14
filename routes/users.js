@@ -43,10 +43,36 @@ router.put(
   "/profile",
   authenticateUser,
   [
-    body("firstName").optional().trim().notEmpty(),
-    body("lastName").optional().trim().notEmpty(),
-    body("phone").optional().trim(),
-    body("address").optional().trim(),
+    body("firstName")
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage("First name cannot be empty")
+      .isLength({ min: 2, max: 50 })
+      .withMessage("First name must be between 2 and 50 characters"),
+    body("lastName")
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage("Last name cannot be empty")
+      .isLength({ min: 2, max: 50 })
+      .withMessage("Last name must be between 2 and 50 characters"),
+    body("phone")
+      .optional()
+      .trim()
+      .custom((value) => {
+        if (!value) return true;
+        const phoneRegex = /^(\+63|0)?9\d{9}$/;
+        if (!phoneRegex.test(value.replace(/\s/g, ""))) {
+          throw new Error("Invalid phone number format (e.g., 09123456789)");
+        }
+        return true;
+      }),
+    body("address")
+      .optional()
+      .trim()
+      .isLength({ max: 500 })
+      .withMessage("Address must not exceed 500 characters"),
     body("profilePic")
       .optional()
       .custom((value) => {
@@ -260,6 +286,123 @@ router.get("/orders", authenticateUser, async (req, res, next) => {
     });
 
     res.json({ orders });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/users/reviews
+ * Submit a review for a product (user must have purchased the product)
+ */
+router.post(
+  "/reviews",
+  authenticateUser,
+  [
+    body("productId").notEmpty().withMessage("Product ID is required"),
+    body("rating")
+      .isInt({ min: 1, max: 5 })
+      .withMessage("Rating must be between 1 and 5"),
+    body("comment")
+      .optional()
+      .trim()
+      .isLength({ max: 500 })
+      .withMessage("Comment must not exceed 500 characters"),
+  ],
+  validate,
+  async (req, res, next) => {
+    try {
+      const { productId, rating, comment } = req.body;
+
+      // Check if product exists
+      const product = await prisma.product.findUnique({
+        where: { id: productId },
+      });
+
+      if (!product) {
+        return res.status(404).json({ error: "Product not found" });
+      }
+
+      // Check if user has a completed order for this product
+      const completedOrder = await prisma.order.findFirst({
+        where: {
+          userId: req.user.id,
+          status: "completed",
+          items: {
+            some: {
+              productId: productId,
+            },
+          },
+        },
+      });
+
+      if (!completedOrder) {
+        return res.status(403).json({
+          error: "You can only review products from completed orders",
+        });
+      }
+
+      // Check if user has already reviewed this product
+      const existingReview = await prisma.review.findFirst({
+        where: {
+          userId: req.user.id,
+          productId,
+        },
+      });
+
+      if (existingReview) {
+        // Update existing review
+        const updatedReview = await prisma.review.update({
+          where: { id: existingReview.id },
+          data: { rating, comment },
+          include: {
+            user: {
+              select: { firstName: true, lastName: true },
+            },
+          },
+        });
+        return res.json({ review: updatedReview, message: "Review updated" });
+      }
+
+      // Create new review
+      const review = await prisma.review.create({
+        data: {
+          userId: req.user.id,
+          productId,
+          rating,
+          comment,
+        },
+        include: {
+          user: {
+            select: { firstName: true, lastName: true },
+          },
+        },
+      });
+
+      res.status(201).json({ review, message: "Review submitted" });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * GET /api/users/reviews
+ * Get user's own reviews
+ */
+router.get("/reviews", authenticateUser, async (req, res, next) => {
+  try {
+    const reviews = await prisma.review.findMany({
+      where: { userId: req.user.id },
+      include: {
+        product: {
+          select: { id: true, name: true, images: true },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    res.json({ reviews });
   } catch (error) {
     next(error);
   }

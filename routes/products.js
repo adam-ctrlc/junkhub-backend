@@ -50,7 +50,14 @@ router.get("/", async (req, res, next) => {
       where,
       include: {
         shop: {
-          select: { id: true, name: true, logo: true },
+          select: {
+            id: true,
+            name: true,
+            logo: true,
+            owner: {
+              select: { profilePic: true },
+            },
+          },
         },
       },
       take: parseInt(limit),
@@ -91,7 +98,16 @@ router.get("/home/bestsellers", async (req, res, next) => {
         status: "approved",
       },
       include: {
-        shop: { select: { id: true, name: true, logo: true } },
+        shop: {
+          select: {
+            id: true,
+            name: true,
+            logo: true,
+            owner: {
+              select: { profilePic: true },
+            },
+          },
+        },
       },
     });
 
@@ -144,7 +160,15 @@ router.get("/:id", async (req, res, next) => {
       where: { id },
       include: {
         shop: {
-          select: { id: true, name: true, logo: true, businessAddress: true },
+          select: {
+            id: true,
+            name: true,
+            logo: true,
+            businessAddress: true,
+            owner: {
+              select: { profilePic: true, businessName: true },
+            },
+          },
         },
         reviews: {
           include: {

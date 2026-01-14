@@ -386,7 +386,13 @@ router.put(
   "/profile",
   authenticateAdmin,
   [
-    body("name").optional().trim().notEmpty(),
+    body("name")
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage("Name cannot be empty")
+      .isLength({ min: 2, max: 50 })
+      .withMessage("Name must be between 2 and 50 characters"),
     body("profilePic")
       .optional()
       .custom((value) => {
@@ -430,55 +436,58 @@ router.put(
  * PUT /api/admin/profile/password
  * Update admin password
  */
-router.put("/profile/password", authenticateAdmin, async (req, res, next) => {
-  try {
-    const { currentPassword, newPassword } = req.body;
+router.put(
+  "/profile/password",
+  authenticateAdmin,
+  [
+    body("currentPassword")
+      .notEmpty()
+      .withMessage("Current password is required"),
+    body("newPassword")
+      .notEmpty()
+      .withMessage("New password is required")
+      .isLength({ min: 6 })
+      .withMessage("New password must be at least 6 characters"),
+  ],
+  validate,
+  async (req, res, next) => {
+    try {
+      const { currentPassword, newPassword } = req.body;
 
-    if (!currentPassword || !newPassword) {
-      return res
-        .status(400)
-        .json({ error: "Current and new password are required" });
+      // Get admin with password
+      const admin = await prisma.admin.findUnique({
+        where: { id: req.user.id },
+      });
+
+      if (!admin) {
+        return res.status(404).json({ error: "Admin not found" });
+      }
+
+      // Import password utils
+      const { comparePassword, hashPassword } = await import(
+        "../utils/password.js"
+      );
+
+      // Verify current password
+      const isValid = await comparePassword(currentPassword, admin.password);
+      if (!isValid) {
+        return res.status(400).json({ error: "Current password is incorrect" });
+      }
+
+      // Hash new password
+      const hashedPassword = await hashPassword(newPassword);
+
+      // Update password
+      await prisma.admin.update({
+        where: { id: req.user.id },
+        data: { password: hashedPassword },
+      });
+
+      res.json({ message: "Password updated successfully" });
+    } catch (error) {
+      next(error);
     }
-
-    if (newPassword.length < 6) {
-      return res
-        .status(400)
-        .json({ error: "New password must be at least 6 characters" });
-    }
-
-    // Get admin with password
-    const admin = await prisma.admin.findUnique({
-      where: { id: req.user.id },
-    });
-
-    if (!admin) {
-      return res.status(404).json({ error: "Admin not found" });
-    }
-
-    // Import password utils
-    const { comparePassword, hashPassword } = await import(
-      "../utils/password.js"
-    );
-
-    // Verify current password
-    const isValid = await comparePassword(currentPassword, admin.password);
-    if (!isValid) {
-      return res.status(400).json({ error: "Current password is incorrect" });
-    }
-
-    // Hash new password
-    const hashedPassword = await hashPassword(newPassword);
-
-    // Update password
-    await prisma.admin.update({
-      where: { id: req.user.id },
-      data: { password: hashedPassword },
-    });
-
-    res.json({ message: "Password updated successfully" });
-  } catch (error) {
-    next(error);
   }
-});
+);
 
 export default router;
